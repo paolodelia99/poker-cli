@@ -1,0 +1,12 @@
+{
+  "name": "poker-cli",
+  "version": "0.1.0",
+  "description": "Pi package exposing the poker-cli agent skill so agents can play and observe Texas Hold'em.",
+  "keywords": ["pi-package", "poker", "texas-holdem", "agent-skill"],
+  "pi": {
+    "skills": ["./skills"]
+  },
+  "files": ["skills"],
+  "license": "UNLICENSED",
+  "private": true
+}
