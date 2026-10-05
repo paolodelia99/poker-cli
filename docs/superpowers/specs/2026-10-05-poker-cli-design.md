@@ -585,7 +585,10 @@ multi-host play.
 
 1. This design spec.
 2. An implementation plan (via the writing-plans skill).
-3. An **agent skill document** describing the canonical agent loop
-   (`wait --turn` → `snapshot` → `choose`), the exit-code contract, and the
-   `POKER_FORMAT=json` bootstrap — derived from this spec so a future agent can
-   drive the CLI without rediscovering it.
+3. An **agent skill document** at `skills/poker-cli/` (`SKILL.md` plus a
+   `references/` file), shipped as a Pi package via the repo-root
+   `package.json` (`pi.skills` + the `pi-package` keyword), so users can install
+   it with `pi install git:github.com/<owner>/poker-cli`. It describes the
+   canonical agent loop (`wait --turn` → `snapshot` → `choose`), the exit-code
+   contract, and the `POKER_FORMAT=json` bootstrap. Status: **draft**, pending
+   validation against the implemented binary.
