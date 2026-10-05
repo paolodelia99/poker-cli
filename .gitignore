@@ -1,0 +1,13 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Local poker session/runtime state (never commit tokens)
+.poker/
+.poker
+
+# pi harness state
+.pi/
+
+# OS noise
+.DS_Store
