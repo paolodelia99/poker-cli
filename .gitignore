@@ -11,3 +11,6 @@
 
 # OS noise
 .DS_Store
+
+# Tmp agents dumps
+docs/agents/*.md
