@@ -2,6 +2,10 @@ use poker_core::engine::{
     equity, CactusKev, Card, Deck, Equity, EquityInput, EquityMode, EquityParams, HandEvaluator,
 };
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 #[test]
 fn test_public_surface() {
     let c = Card::parse("As").unwrap();

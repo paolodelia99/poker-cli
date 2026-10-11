@@ -316,6 +316,10 @@ pub fn equity(input: EquityInput, params: EquityParams) -> Result<Equity, Engine
     })
 }
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
     use super::super::{Card, EngineError, HandRank};
