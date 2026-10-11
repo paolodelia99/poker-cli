@@ -5,6 +5,11 @@ const RANK_CHARS: [char; 13] = [
     '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A',
 ];
 
+/// Prime assigned to each rank, indexed by rank index (`0` == deuce,
+/// `12` == ace). Used by the Cactus Kev evaluator to fingerprint rank
+/// multisets via unique prime factorization.
+pub(crate) const RANK_PRIMES: [u32; 13] = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Suit {
     Club,
@@ -86,6 +91,24 @@ impl Card {
     /// Unique, stable bijection of the 52 cards onto `0..52`.
     pub fn index(&self) -> u8 {
         (self.rank.0 - 2) * 4 + suit_index(self.suit)
+    }
+
+    /// 32-bit Cactus Kev encoding: rank prime in the low byte, rank index
+    /// (`0` == deuce) in bits 8-11, a one-hot suit bit in bits 12-15, and a
+    /// rank bit at `16 + rank_index`. See <http://suffe.cool/poker/evaluator.html>.
+    #[allow(clippy::wrong_self_convention)]
+    pub(crate) fn to_ck(&self) -> u32 {
+        let rank_index = (self.rank.0 - 2) as u32;
+        let suit_bit = match self.suit {
+            Suit::Club => 0x8000,
+            Suit::Diamond => 0x4000,
+            Suit::Heart => 0x2000,
+            Suit::Spade => 0x1000,
+        };
+        RANK_PRIMES[rank_index as usize]
+            | (rank_index << 8)
+            | suit_bit
+            | (1u32 << (16 + rank_index))
     }
 }
 
