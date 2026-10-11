@@ -4,9 +4,11 @@ use std::sync::OnceLock;
 use super::card::RANK_PRIMES;
 use super::Card;
 
+/// Contract: larger rank == stronger hand; equal rank == true showdown tie.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct HandRank(pub u16);
 
+/// Contract: larger rank == stronger hand; equal rank == true showdown tie.
 pub trait HandEvaluator {
     fn rank_five(&self, cards: &[Card; 5]) -> HandRank;
 
