@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
 use super::card::RANK_PRIMES;
@@ -35,8 +35,9 @@ pub trait HandEvaluator {
 /// The five 32-bit [`Card::to_ck`] encodings are OR'ed and shifted `>> 16` to
 /// obtain a rank bitset. Flushes and unique-rank hands (high card and
 /// straights) resolve through two 8192-entry rank-bitset tables; every other
-/// hand resolves through a perfect-hash table keyed by the product of the five
-/// rank primes. The lookup tables are built once in a [`OnceLock`].
+/// hand resolves through a dense 8192-entry perfect-hash table keyed by the
+/// product of the five rank primes. The lookup tables are built once in a
+/// [`OnceLock`].
 pub struct CactusKev;
 
 impl HandEvaluator for CactusKev {
@@ -59,7 +60,7 @@ impl HandEvaluator for CactusKev {
             return rank;
         }
         let product = (c[0] & 0xFF) * (c[1] & 0xFF) * (c[2] & 0xFF) * (c[3] & 0xFF) * (c[4] & 0xFF);
-        tables.products[&product]
+        tables.products[find_fast(product, &tables.hash_adjust)]
     }
 }
 
@@ -69,8 +70,12 @@ struct Tables {
     /// Rank-bitset lookup for non-flush hands with five distinct ranks
     /// (high card and straights); `None` for rank patterns with a duplicate.
     unique5: [Option<HandRank>; 8192],
-    /// Prime-product lookup for paired, tripped, and quadded hands.
-    products: HashMap<u32, HandRank>,
+    /// Dense prime-product perfect-hash table for paired, tripped, and
+    /// quadded hands; indexed by [`find_fast`].
+    products: [HandRank; 8192],
+    /// Second-level displacement table for [`find_fast`], so the 4,888
+    /// paired-rank prime products hash injectively into the 8,192 slots.
+    hash_adjust: [u16; 512],
 }
 
 static TABLES: OnceLock<Tables> = OnceLock::new();
@@ -212,7 +217,7 @@ fn choose(n: u16, k: usize) -> u16 {
 fn build_tables() -> Tables {
     let mut flushes = [HandRank(0); 8192];
     let mut unique5 = [None; 8192];
-    let mut products = HashMap::new();
+    let mut product_keys: Vec<(u32, HandRank)> = Vec::with_capacity(4888);
     let mut distinct = BTreeSet::new();
 
     // Enumerate every 5-rank multiset. The 13 five-of-a-kind tuples cannot be
@@ -247,7 +252,7 @@ fn build_tables() -> Tables {
                         } else {
                             let value = classify_five(&counts, false);
                             distinct.insert(value);
-                            products.insert(product, value);
+                            product_keys.push((product, value));
                         }
                     }
                 }
@@ -276,16 +281,83 @@ fn build_tables() -> Tables {
             *value = normalize[&raw];
         }
     }
-    for value in products.values_mut() {
-        let raw = *value;
-        *value = normalize[&raw];
+
+    // Build the collision-free perfect hash over the 4,888 paired-rank prime
+    // products and populate the dense products table.
+    let hash_adjust = build_hash_adjust(&product_keys);
+    let mut products = [HandRank(0); 8192];
+    for &(product, raw) in &product_keys {
+        let index = find_fast(product, &hash_adjust);
+        debug_assert_eq!(
+            products[index],
+            HandRank(0),
+            "distinct prime products must hash to distinct slots"
+        );
+        products[index] = normalize[&raw];
     }
 
     Tables {
         flushes,
         unique5,
         products,
+        hash_adjust,
     }
+}
+
+/// Splits a prime product into the first- and second-level coordinates used by
+/// Cactus Kev's [`find_fast`] perfect hash: `b` is a 9-bit bucket index and `a`
+/// is a 13-bit second-level coordinate.
+fn product_coords(product: u32) -> (u32, u32) {
+    let mut u = product.wrapping_add(0xe91aaa35);
+    u ^= u >> 16;
+    u = u.wrapping_add(u << 8);
+    u ^= u >> 4;
+    let b = (u >> 8) & 0x1ff;
+    let a = (u.wrapping_add(u << 2)) >> 19;
+    (a, b)
+}
+
+/// Maps a prime product to a 13-bit index into [`Tables::products`] using
+/// Cactus Kev's two-level `find_fast` scheme: the second-level coordinate `a`
+/// is XOR-displaced by a per-bucket value from [`Tables::hash_adjust`].
+fn find_fast(product: u32, adjust: &[u16; 512]) -> usize {
+    let (a, b) = product_coords(product);
+    ((a ^ adjust[b as usize] as u32) & 0x1fff) as usize
+}
+
+/// Builds the displacement table that makes [`find_fast`] injective over the
+/// 4,888 paired-rank prime products.
+///
+/// Products are bucketed by their 9-bit first-level coordinate `b`; within a
+/// bucket the 13-bit second-level coordinate `a` is already unique, so XORing
+/// with a single per-bucket displacement is a bijection. Buckets are resolved
+/// largest-first, each taking the smallest displacement whose images are still
+/// unused. This mirrors the canonical Cactus Kev `hash_adjust` table, but is
+/// computed at build time instead of shipped as a literal.
+fn build_hash_adjust(keys: &[(u32, HandRank)]) -> [u16; 512] {
+    let mut buckets: [Vec<u32>; 512] = std::array::from_fn(|_| Vec::new());
+    for &(product, _) in keys {
+        let (a, b) = product_coords(product);
+        buckets[b as usize].push(a);
+    }
+
+    let mut order: Vec<usize> = (0..512).collect();
+    order.sort_by_key(|&bucket| std::cmp::Reverse(buckets[bucket].len()));
+
+    let mut adjust = [0u16; 512];
+    let mut used = [false; 8192];
+    for bucket in order {
+        let a_values = &buckets[bucket];
+        let displacement = (0..8192u32)
+            .find(|&d| a_values.iter().all(|&a| !used[((a ^ d) & 0x1fff) as usize]))
+            .expect("no collision-free displacement for Cactus Kev perfect hash");
+        adjust[bucket] = displacement as u16;
+        for &a in a_values {
+            used[((a ^ displacement) & 0x1fff) as usize] = true;
+        }
+    }
+
+    adjust
 }
 
 #[cfg(test)]
@@ -352,22 +424,23 @@ mod tests {
     }
 
     #[test]
-    fn test_two_pair_kicker_does_not_tie() {
-        let low = [
-            Card::parse("2c").unwrap(),
-            Card::parse("2d").unwrap(),
-            Card::parse("3h").unwrap(),
-            Card::parse("3s").unwrap(),
-            Card::parse("4c").unwrap(),
-        ];
-        let high = [
-            Card::parse("2c").unwrap(),
-            Card::parse("2d").unwrap(),
-            Card::parse("3h").unwrap(),
-            Card::parse("3s").unwrap(),
-            Card::parse("5c").unwrap(),
-        ];
-        assert!(Naive.rank_five(&low) < Naive.rank_five(&high));
+    fn test_duplicate_rank_kickers_do_not_tie() {
+        let rank = |hand: &str| -> HandRank {
+            let cards: [Card; 5] = hand
+                .split_whitespace()
+                .map(|card| Card::parse(card).unwrap())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+            Naive.rank_five(&cards)
+        };
+
+        // Two pair: 2-2-3-3 with a 4 vs 5 kicker.
+        assert!(rank("2c 2d 3h 3s 4c") < rank("2c 2d 3h 3s 5c"));
+        // Trips: 2-2-2 with 3,4 vs 3,5 kickers.
+        assert!(rank("2c 2d 2h 3s 4c") < rank("2c 2d 2h 3s 5c"));
+        // Pair: 2-2 with 3,4,5 vs 3,4,6 kickers.
+        assert!(rank("2c 2d 3h 4s 5c") < rank("2c 2d 3h 4s 6c"));
     }
 
     #[test]
