@@ -14,3 +14,6 @@
 
 # Tmp agents dumps
 docs/agents/*.md
+
+# Superpowers plans (working artifacts, not tracked)
+docs/superpowers/plans/
