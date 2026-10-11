@@ -13,7 +13,7 @@ pub enum EngineError {
     NoOpponents,
     /// Not enough undealt cards remain to satisfy a request.
     NotEnoughCards { need: usize, have: usize },
-    /// An iteration count must be greater than zero.
+    /// An iteration count must be at least 2 because standard error requires N > 1.
     InvalidIterations(usize),
     /// A seed string could not be interpreted.
     InvalidSeed(String),

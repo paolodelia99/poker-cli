@@ -335,6 +335,23 @@ mod tests {
     }
 
     #[test]
+    fn test_well_known_equity_aces_preflop() {
+        let e = equity(
+            EquityInput {
+                hero: [p("As"), p("Ah")],
+                board: vec![],
+                opponents: 1,
+            },
+            EquityParams {
+                seed: 0,
+                mode: EquityMode::MonteCarlo { iterations: 40_000 },
+            },
+        )
+        .unwrap();
+        assert!((0.80..=0.90).contains(&e.equity), "equity: {}", e.equity);
+    }
+
+    #[test]
     fn test_exact_nuts_is_certain_win() {
         let e = equity(
             EquityInput {

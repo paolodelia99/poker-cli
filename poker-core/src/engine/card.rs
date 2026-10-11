@@ -150,10 +150,22 @@ mod tests {
 
     #[test]
     fn test_parse_rejects_bad_input() {
-        assert!(matches!(Card::parse("1c"), Err(EngineError::InvalidCardString(_))));
-        assert!(matches!(Card::parse("Xc"), Err(EngineError::InvalidCardString(_))));
-        assert!(matches!(Card::parse("Ax"), Err(EngineError::InvalidCardString(_))));
-        assert!(matches!(Card::parse(""), Err(EngineError::InvalidCardString(_))));
+        assert!(matches!(
+            Card::parse("1c"),
+            Err(EngineError::InvalidCardString(_))
+        ));
+        assert!(matches!(
+            Card::parse("Xc"),
+            Err(EngineError::InvalidCardString(_))
+        ));
+        assert!(matches!(
+            Card::parse("Ax"),
+            Err(EngineError::InvalidCardString(_))
+        ));
+        assert!(matches!(
+            Card::parse(""),
+            Err(EngineError::InvalidCardString(_))
+        ));
     }
 
     #[test]
