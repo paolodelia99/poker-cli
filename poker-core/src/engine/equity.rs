@@ -99,6 +99,40 @@ fn validate(input: &EquityInput, mode: EquityMode) -> Result<(Vec<Card>, usize),
     Ok((pool, need))
 }
 
+fn scenario_count(board_len: usize, opponents: usize) -> u64 {
+    if board_len > 5 {
+        return 0;
+    }
+
+    let unknown = 50 - board_len;
+    let runout = 5 - board_len;
+    if opponents > (unknown - runout) / 2 {
+        return 0;
+    }
+
+    let mut scenarios = 1_u64;
+    for opponent in 0..opponents {
+        let available = unknown - 2 * opponent;
+        scenarios = scenarios.saturating_mul(combination_count(available, 2));
+    }
+    scenarios.saturating_mul(combination_count(unknown - 2 * opponents, runout))
+}
+
+fn combination_count(n: usize, k: usize) -> u64 {
+    if k > n {
+        return 0;
+    }
+    let k = k.min(n - k);
+    let mut result = 1_u64;
+    for i in 1..=k {
+        result = result
+            .checked_mul((n - k + i) as u64)
+            .and_then(|value| value.checked_div(i as u64))
+            .unwrap_or(u64::MAX);
+    }
+    result
+}
+
 fn rank_trial(
     hero: [Card; 2],
     board: &[Card],
@@ -126,12 +160,109 @@ fn rank_trial(
     share(hero_rank, &opponent_ranks)
 }
 
+struct ExactStats {
+    sum: f64,
+    wins: usize,
+    ties: usize,
+    losses: usize,
+}
+
+fn enumerate_exact(input: &EquityInput, pool: &[Card], scenarios: u64) -> ExactStats {
+    let mut stats = ExactStats {
+        sum: 0.0,
+        wins: 0,
+        ties: 0,
+        losses: 0,
+    };
+    let mut sampled = Vec::with_capacity(pool.len());
+    enumerate_opponents(input, input.opponents, 0, pool, &mut sampled, &mut stats);
+    debug_assert_eq!(stats.wins + stats.ties + stats.losses, scenarios as usize);
+    stats
+}
+
+fn enumerate_opponents(
+    input: &EquityInput,
+    opponents: usize,
+    opponent: usize,
+    available: &[Card],
+    sampled: &mut Vec<Card>,
+    stats: &mut ExactStats,
+) {
+    if opponent == opponents {
+        enumerate_runout(input, 5 - input.board.len(), 0, available, sampled, stats);
+        return;
+    }
+
+    for first in 0..available.len() {
+        for second in (first + 1)..available.len() {
+            sampled.extend([available[first], available[second]]);
+            let remaining: Vec<Card> = available
+                .iter()
+                .enumerate()
+                .filter_map(|(index, &card)| (index != first && index != second).then_some(card))
+                .collect();
+            enumerate_opponents(input, opponents, opponent + 1, &remaining, sampled, stats);
+            sampled.truncate(sampled.len() - 2);
+        }
+    }
+}
+
+fn enumerate_runout(
+    input: &EquityInput,
+    remaining: usize,
+    start: usize,
+    available: &[Card],
+    sampled: &mut Vec<Card>,
+    stats: &mut ExactStats,
+) {
+    if remaining == 0 {
+        let (trial_share, outcome) = rank_trial(input.hero, &input.board, input.opponents, sampled);
+        stats.sum += trial_share;
+        match outcome {
+            Outcome::Win => stats.wins += 1,
+            Outcome::Tie => stats.ties += 1,
+            Outcome::Lose => stats.losses += 1,
+        }
+        return;
+    }
+    if remaining > available.len() {
+        return;
+    }
+
+    for index in start..=available.len() - remaining {
+        sampled.push(available[index]);
+        enumerate_runout(input, remaining - 1, index + 1, available, sampled, stats);
+        sampled.pop();
+    }
+}
+
 pub fn equity(input: EquityInput, params: EquityParams) -> Result<Equity, EngineError> {
     let (pool, cards_per_trial) = validate(&input, params.mode)?;
 
+    if params.mode == EquityMode::Exact {
+        let scenarios = scenario_count(input.board.len(), input.opponents);
+        if scenarios > 1_100_000 {
+            return Err(EngineError::TooManyScenarios { scenarios });
+        }
+
+        let stats = enumerate_exact(&input, &pool, scenarios);
+        let count = scenarios as f64;
+        return Ok(Equity {
+            mode: params.mode,
+            equity: stats.sum / count,
+            se: 0.0,
+            win: stats.wins as f64 / count,
+            tie: stats.ties as f64 / count,
+            lose: stats.losses as f64 / count,
+            count: scenarios as usize,
+            opponents: input.opponents,
+            seed: params.seed,
+        });
+    }
+
     let iterations = match params.mode {
         EquityMode::MonteCarlo { iterations } => iterations,
-        EquityMode::Exact => todo!(),
+        EquityMode::Exact => unreachable!(),
     };
 
     let mut rng = ChaCha12Rng::seed_from_u64(params.seed);
@@ -192,6 +323,111 @@ mod tests {
 
     fn p(s: &str) -> Card {
         Card::parse(s).unwrap()
+    }
+
+    #[test]
+    fn test_scenario_count() {
+        assert_eq!(scenario_count(5, 1), 990);
+        assert_eq!(scenario_count(4, 1), 45_540);
+        assert_eq!(scenario_count(3, 1), 1_070_190);
+        assert_eq!(scenario_count(0, 1), 2_097_572_400);
+        assert_eq!(scenario_count(3, 2), 966_381_570);
+    }
+
+    #[test]
+    fn test_exact_nuts_is_certain_win() {
+        let e = equity(
+            EquityInput {
+                hero: [p("As"), p("Ah")],
+                board: vec![p("Ks"), p("Qs"), p("Js"), p("Ts"), p("2h")],
+                opponents: 1,
+            },
+            EquityParams {
+                seed: 0,
+                mode: EquityMode::Exact,
+            },
+        )
+        .unwrap();
+        assert_eq!((e.equity, e.se, e.count), (1.0, 0.0, 990));
+    }
+
+    #[test]
+    fn test_exact_threshold() {
+        let flop = || EquityInput {
+            hero: [p("As"), p("Ah")],
+            board: vec![p("2c"), p("7d"), p("9h")],
+            opponents: 1,
+        };
+        assert!(equity(
+            flop(),
+            EquityParams {
+                seed: 0,
+                mode: EquityMode::Exact
+            }
+        )
+        .is_ok());
+        let two = EquityInput {
+            hero: [p("As"), p("Ah")],
+            board: vec![p("2c"), p("7d"), p("9h")],
+            opponents: 2,
+        };
+        assert!(matches!(
+            equity(
+                two,
+                EquityParams {
+                    seed: 0,
+                    mode: EquityMode::Exact
+                }
+            ),
+            Err(EngineError::TooManyScenarios {
+                scenarios: 966_381_570
+            })
+        ));
+        let pre = EquityInput {
+            hero: [p("As"), p("Ah")],
+            board: vec![],
+            opponents: 1,
+        };
+        assert!(matches!(
+            equity(
+                pre,
+                EquityParams {
+                    seed: 0,
+                    mode: EquityMode::Exact
+                }
+            ),
+            Err(EngineError::TooManyScenarios {
+                scenarios: 2_097_572_400
+            })
+        ));
+    }
+
+    #[test]
+    fn test_mc_matches_exact_on_turn() {
+        let input = EquityInput {
+            hero: [p("As"), p("Ah")],
+            board: vec![p("2c"), p("7d"), p("9h"), p("Qs")],
+            opponents: 1,
+        };
+        let exact = equity(
+            input.clone(),
+            EquityParams {
+                seed: 0,
+                mode: EquityMode::Exact,
+            },
+        )
+        .unwrap();
+        let mc = equity(
+            input,
+            EquityParams {
+                seed: 5,
+                mode: EquityMode::MonteCarlo {
+                    iterations: 2_000_000,
+                },
+            },
+        )
+        .unwrap();
+        assert!((mc.equity - exact.equity).abs() <= 4.0 * mc.se);
     }
 
     #[test]
