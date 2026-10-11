@@ -82,18 +82,6 @@ struct Tables {
 
 static TABLES: OnceLock<Tables> = OnceLock::new();
 
-/// Test-only convenience used by the [`Naive`] oracle: folds five [`Card`]s
-/// into a rank histogram and flush flag, then delegates to [`classify_five`].
-#[cfg(test)]
-fn five_card_value(cards: &[Card; 5]) -> HandRank {
-    let mut counts = [0u8; 13];
-    for card in cards {
-        counts[(card.rank.0 - 2) as usize] += 1;
-    }
-    let flush = cards.iter().all(|card| card.suit == cards[0].suit);
-    classify_five(&counts, flush)
-}
-
 /// Canonical `larger == stronger` five-card classification shared by the
 /// test-only [`Naive`] oracle and by [`build_tables`], so the bit-trick
 /// evaluator and the oracle are order-isomorphic by construction.
@@ -360,6 +348,22 @@ fn build_hash_adjust(keys: &[(u32, HandRank)]) -> [u16; 512] {
     }
 
     adjust
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+/// Test-only convenience used by the [`Naive`] oracle: folds five [`Card`]s
+/// into a rank histogram and flush flag, then delegates to [`classify_five`].
+#[cfg(test)]
+fn five_card_value(cards: &[Card; 5]) -> HandRank {
+    let mut counts = [0u8; 13];
+    for card in cards {
+        counts[(card.rank.0 - 2) as usize] += 1;
+    }
+    let flush = cards.iter().all(|card| card.suit == cards[0].suit);
+    classify_five(&counts, flush)
 }
 
 #[cfg(test)]

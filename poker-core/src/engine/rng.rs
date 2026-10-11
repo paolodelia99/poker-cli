@@ -34,6 +34,10 @@ pub fn sample_without_replacement(rng: &mut ChaCha12Rng, pool: &[Card], m: usize
     v
 }
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
     use super::*;
