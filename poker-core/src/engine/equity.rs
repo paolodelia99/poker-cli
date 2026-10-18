@@ -452,6 +452,86 @@ mod tests {
     }
 
     #[test]
+    fn test_mc_matches_exact_on_river() {
+        // Complete board: `|Ω| = C(45, 2) = 990` heads-up scenarios, so exact
+        // enumeration is cheap and Monte-Carlo has plenty of samples to spare.
+        let input = EquityInput {
+            hero: [p("As"), p("Ah")],
+            board: vec![p("Ks"), p("Qc"), p("9h"), p("5d"), p("2c")],
+            opponents: 1,
+        };
+        let exact = equity(
+            input.clone(),
+            EquityParams {
+                seed: 0,
+                mode: EquityMode::Exact,
+            },
+        )
+        .unwrap();
+        assert_eq!((exact.count, exact.se), (990, 0.0));
+
+        let mc = equity(
+            input,
+            EquityParams {
+                seed: 5,
+                mode: EquityMode::MonteCarlo {
+                    iterations: 100_000,
+                },
+            },
+        )
+        .unwrap();
+
+        assert!(mc.se > 0.0);
+        assert!((mc.equity - exact.equity).abs() <= 4.0 * mc.se);
+        assert!((mc.win + mc.tie + mc.lose - 1.0).abs() <= 1e-9);
+    }
+
+    #[test]
+    fn test_mc_matches_exact_tie_heavy_river() {
+        // Board is a 9-high straight (9c 8d 7s 6h 5c). With only two hole cards
+        // no flush or straight flush is possible, so the board plays unless an
+        // opponent holds a ten (T-9-8-7-6 beats 9-8-7-6-5). Every other opponent
+        // chops, which makes this a deterministic, tie-heavy case.
+        let input = EquityInput {
+            hero: [p("As"), p("Kh")],
+            board: vec![p("9c"), p("8d"), p("7s"), p("6h"), p("5c")],
+            opponents: 1,
+        };
+        let exact = equity(
+            input.clone(),
+            EquityParams {
+                seed: 0,
+                mode: EquityMode::Exact,
+            },
+        )
+        .unwrap();
+
+        // 990 = C(45, 2) opponent hands; the 170 that contain a ten beat the
+        // board straight, the remaining 820 chop.
+        assert_eq!((exact.count, exact.se), (990, 0.0));
+        assert_eq!(exact.win, 0.0);
+        assert_eq!(exact.tie, 820.0 / 990.0);
+        assert_eq!(exact.lose, 170.0 / 990.0);
+        assert_eq!(exact.equity, 410.0 / 990.0);
+        assert!(exact.tie > 0.5);
+
+        let iterations = 100_000;
+        let mc = equity(
+            input,
+            EquityParams {
+                seed: 5,
+                mode: EquityMode::MonteCarlo { iterations },
+            },
+        )
+        .unwrap();
+
+        let count = iterations as f64;
+        let tie_se = (exact.tie * (1.0 - exact.tie) / count).sqrt();
+        assert!((mc.equity - exact.equity).abs() <= 4.0 * mc.se);
+        assert!((mc.tie - exact.tie).abs() <= 4.0 * tie_se);
+    }
+
+    #[test]
     fn test_share_function() {
         let h = |r| HandRank(r);
         assert_eq!(share(h(10), &[h(5), h(5)]), (1.0, Outcome::Win));
