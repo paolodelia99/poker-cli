@@ -81,7 +81,7 @@ split is:
 
 - **Engine (`poker-core`)** owns poker truth: dealing/RNG (seeded), betting
   legality and `legal_actions`, min-raise bounds, hand evaluation, showdown,
-  equity/probability, and the rules of a hand's state machine.
+  equity, and the rules of a hand's state machine.
 - **Server** owns sessions and process concerns: tables and seats, tokens and
   roles, the turn clock, the canonical event log and `seq`, persistence,
   redaction, and serializing actions in game order.
@@ -90,6 +90,11 @@ split is:
 
 The server calls the engine for every rule decision; the wire contract in §2.4
 is the only coupling the engine spec needs to agree with.
+
+> **Not poker judgement.** "Never makes poker judgement" means *rule
+> adjudication* — legality, turn, and winners. A read-only statistic computed
+> over data the caller already legitimately holds (such as `equity`) is not
+> adjudication.
 
 ### 2.4 Wire protocol
 
@@ -208,7 +213,7 @@ to select a table.
 | `snapshot [--reveal]` | Current, perspective-scoped truth of the table (§6.1). |
 | `status` | Public seats digest (§6.2). |
 | `choose <action> [--if-seq N]` | Act. Actions: `fold`, `check`, `call`, `raise <to> [--by N]`, `all-in`. |
-| `prob [--iterations N] [--opponents K] [--seed HEX] [--exact]` | Fair Monte-Carlo equity for your hand (§6.3). |
+| `equity [--iterations N] [--opponents K] [--seed HEX] [--exact]` | Fair Monte-Carlo equity for your hand (§6.3). |
 | `wait [--turn] [--change] [--until EXPR] [--timeout D] [--since ID]` | Block until a condition holds (§7.3). |
 | `feed [--since ID] [--types LIST] [--timeout D]` | Stream the table's event log (§7.2). |
 
@@ -371,20 +376,60 @@ hides, and never contains hole cards.
 }
 ```
 
-### 6.3 `prob` (fair equity)
+### 6.3 `equity` (fair equity)
 
 Default mode is **fair Monte-Carlo**: your equity is simulated against
 **unknown/random** opponent hands — exactly what a real player could compute.
+The default run is `--iterations 40000`, which targets a half-width of about
+0.005; the standard error is always reported so precision is honest.
 Parameters: `--iterations N`, `--opponents K` (default = live opponents),
 `--seed HEX` (deterministic, reproducible), `--exact` (enumerate when cheap).
 
 ```json
 {
-  "schema": "poker.prob/1",
-  "mode": "monte-carlo", "iterations": 50000, "opponents": 2,
-  "equity": {"win": 0.41, "tie": 0.03, "lose": 0.56}
+  "schema": "poker.equity/1",
+  "mode": "monte-carlo",
+  "iterations": 40000,
+  "opponents": 2,
+  "seed": "0123456789abcdef",
+  "equity": 0.4132,
+  "se": 0.0019,
+  "win": 0.4110,
+  "tie": 0.0044,
+  "lose": 0.5846
 }
 ```
+
+`equity`, `win`, `tie`, and `lose` are fractions in `[0,1]` with
+`win + tie + lose ≈ 1`. `seed` is always present: the effective seed, whether
+supplied or derived locally when `--seed` was omitted.
+
+With `--exact`, the engine enumerates every scenario with zero simulation
+error, so the result instead carries `"mode": "exact"`, `"scenarios"` in place
+of `"iterations"`, and `"se": 0`:
+
+```json
+{
+  "schema": "poker.equity/1",
+  "mode": "exact",
+  "scenarios": 990,
+  "opponents": 1,
+  "seed": "0123456789abcdef",
+  "equity": 1.0,
+  "se": 0.0,
+  "win": 1.0,
+  "tie": 0.0,
+  "lose": 0.0
+}
+```
+
+If `--exact` would need more than **1,100,000** scenarios (multiway flop and
+above), the command fails with `too_many_scenarios` (exit 15) rather than
+hanging; use Monte-Carlo for those spots.
+
+Human rendering prints percentages (`equity 41.32%`,
+`win 41.10% / tie 0.44% / lose 58.46%`) and shows `seed` only when `--seed`
+was explicitly passed.
 
 An admin-only **oracle** mode (equity against the actual known cards) is
 documented as an off-by-default extension, reachable only with an admin token
@@ -487,6 +532,7 @@ from one shared type, so the two audiences cannot drift.
 | 12 | `stale` | state advanced under the caller |
 | 13 | `table_finished` | table ended |
 | 14 | `wait_timeout` | bounded `wait` expired without matching |
+| 15 | `too_many_scenarios` | `--exact` needs more than 1,100,000 scenarios; use Monte-Carlo |
 
 Any correctable failure carries the context to correct it: `illegal_action`,
 `not_your_turn`, and `stale` include fresh `legal_actions`/`turn`.
@@ -494,7 +540,7 @@ Any correctable failure carries the context to correct it: `illegal_action`,
 ### 8.4 Schema and protocol versioning
 
 - Every payload names its version: `poker.snapshot/1`, `poker.status/1`,
-  `poker.prob/1`, `poker.event/1`, and a protocol `v` on the envelope.
+  `poker.equity/1`, `poker.event/1`, and a protocol `v` on the envelope.
 - Additive fields are backward compatible within a major version; breaking
   changes bump the version. The `hello` handshake negotiates the protocol and
   rejects mismatches before any command is interpreted.
@@ -568,7 +614,7 @@ multi-host play.
   over a temporary socket; drive whole hands (`wait --turn` → `choose` → …).
 - **Determinism:** seeded sessions produce identical deals, events, and history
   files; `replay` reproduces a stored hand exactly.
-- **Golden files:** the JSON schema of `snapshot`, `status`, `prob`, `event`,
+- **Golden files:** the JSON schema of `snapshot`, `status`, `equity`, `event`,
   and `history` is pinned.
 - **Contract:** every error class yields its specified exit code and `error.code`
   in both text and JSON modes; stdout stays clean on failure.

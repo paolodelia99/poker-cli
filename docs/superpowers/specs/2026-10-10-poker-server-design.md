@@ -131,7 +131,7 @@ equity(input, iters, seed, exact) -> Equity
 - Engine events: `hand.begin`, `blinds.posted`, `cards.dealt`, `action`,
   `street.advanced`, `showdown`, `hand.complete`.
 - `equity` lives in a `poker-core` module (the probability calculator). It is
-  consumed **client-side** by `prob` (§5.7); the server does not expose it.
+  consumed **client-side** by `equity` (§5.7); the server does not expose it.
 - A hand's `seed` is engine input only and **is never persisted** (§10.2).
 
 ### 3.2 `poker-bots` (strategies)
@@ -252,8 +252,8 @@ dispatcher enforces the §4.2 authority matrix before touching any table.
 | `history` | no | reads persisted documents |
 | `version` | no | server/protocol version |
 
-`prob`, `help`, and `version`'s client half are handled by the CLI, not the
-server. `prob` issues only a normal state read and computes locally.
+`equity`, `help`, and `version`'s client half are handled by the CLI, not the
+server. `equity` issues only a normal state read and computes locally.
 
 ### 5.5 Streaming contract (`feed`, `wait`)
 
@@ -294,18 +294,18 @@ boolean operators in v1:
 An unknown key or malformed expression is `usage` (exit 2). A predicate that
 never holds is bounded by `--timeout` → exit 14.
 
-### 5.7 `prob` is client-local
+### 5.7 `equity` is client-local
 
-`prob` requires only the caller's hole cards, the board, and the opponent count
+`equity` requires only the caller's hole cards, the board, and the opponent count
 — all present in the caller's own snapshot. The client process links
 `poker-core` and runs `equity` locally after a normal perspective-scoped state
-read; the server never receives a `prob` request, never computes equity, and
+read; the server never receives an `equity` request, never computes equity, and
 stores nothing about it.
 
 > **CLI-spec clarification:** §2.5's "the CLI never makes poker judgement" means
 > *rule adjudication* — legality, turn, winners. A read-only statistic computed
 > over data the caller already legitimately holds is not adjudication. This
-> clarification should be mirrored in the CLI spec when it is next revised.
+> clarification is mirrored in the CLI spec §2.5.
 
 ---
 

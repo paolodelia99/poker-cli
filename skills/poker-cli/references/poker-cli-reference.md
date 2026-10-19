@@ -9,7 +9,7 @@ spec as authoritative if the two disagree.
 - `choose` grammar
 - Exit codes and error classes
 - Session discovery
-- JSON shapes (`snapshot`, `status`, `prob`, `event`)
+- JSON shapes (`snapshot`, `status`, `equity`, `event`)
 - Table setup options
 - Lifecycle and observation
 
@@ -28,7 +28,7 @@ spec as authoritative if the two disagree.
 | `snapshot [--reveal]` | Perspective-scoped current state. |
 | `status` | Public seats digest (never hole cards). |
 | `choose <action> [--if-seq N]` | Act. |
-| `prob [--iterations N] [--opponents K] [--seed HEX] [--exact]` | Fair Monte-Carlo equity for your hand. |
+| `equity [--iterations N] [--opponents K] [--seed HEX] [--exact]` | Fair Monte-Carlo equity for your hand. |
 | `wait [--turn] [--change] [--until EXPR] [--timeout D] [--since ID]` | Block until a condition holds. |
 | `feed [--since ID] [--types LIST] [--timeout D]` | Stream the event log. |
 | `flow <auto\|manual>` | Admin: auto-advance streets, or enable `step`. |
@@ -68,6 +68,7 @@ structured error plus fresh `legal_actions` / `turn` when an action is rejected.
 | 12 | `stale` | state advanced under the caller |
 | 13 | `table_finished` | table ended |
 | 14 | `wait_timeout` | bounded `wait` expired without matching |
+| 15 | `too_many_scenarios` | `--exact` needs more than 1,100,000 scenarios; use Monte-Carlo |
 
 `illegal_action`, `not_your_turn`, and `stale` include fresh
 `legal_actions` / `turn` in the error so a caller can correct itself.
@@ -132,11 +133,13 @@ snapshot has no `hole` field anywhere.
 Public seats only: `seat`, `name`, `stack`, `bet`, `position`, `status`,
 `last_action`, plus table/hand/street/turn.
 
-### `prob` (schema `poker.prob/1`)
+### `equity` (schema `poker.equity/1`)
 
 ```json
-{"schema": "poker.prob/1", "mode": "monte-carlo", "iterations": 50000,
- "opponents": 2, "equity": {"win": 0.41, "tie": 0.03, "lose": 0.56}}
+{"schema": "poker.equity/1", "mode": "monte-carlo", "iterations": 40000,
+ "opponents": 2, "seed": "0123456789abcdef",
+ "equity": 0.4132, "se": 0.0019,
+ "win": 0.4110, "tie": 0.0044, "lose": 0.5846}
 ```
 
 ### `event` (schema `poker.event/1`)
