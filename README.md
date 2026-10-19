@@ -176,7 +176,7 @@ poker-cli choose raise 1000
 Agents can also estimate equity locally from their own private state:
 
 ```bash
-poker-cli prob --iterations 50000    # fair Monte-Carlo vs. unknown hands
+poker-cli equity --iterations 50000    # fair Monte-Carlo vs. unknown hands
 ```
 
 For the full command list, exit codes, and JSON shapes, see the
