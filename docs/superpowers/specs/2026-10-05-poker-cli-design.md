@@ -91,6 +91,11 @@ split is:
 The server calls the engine for every rule decision; the wire contract in §2.4
 is the only coupling the engine spec needs to agree with.
 
+> **Not poker judgement.** "Never makes poker judgement" means *rule
+> adjudication* — legality, turn, and winners. A read-only statistic computed
+> over data the caller already legitimately holds (such as `equity`) is not
+> adjudication.
+
 ### 2.4 Wire protocol
 
 - Transport: **Unix domain socket**, path recorded in `.poker` (default
@@ -527,6 +532,7 @@ from one shared type, so the two audiences cannot drift.
 | 12 | `stale` | state advanced under the caller |
 | 13 | `table_finished` | table ended |
 | 14 | `wait_timeout` | bounded `wait` expired without matching |
+| 15 | `too_many_scenarios` | `--exact` needs more than 1,100,000 scenarios; use Monte-Carlo |
 
 Any correctable failure carries the context to correct it: `illegal_action`,
 `not_your_turn`, and `stale` include fresh `legal_actions`/`turn`.
@@ -534,7 +540,7 @@ Any correctable failure carries the context to correct it: `illegal_action`,
 ### 8.4 Schema and protocol versioning
 
 - Every payload names its version: `poker.snapshot/1`, `poker.status/1`,
-  `poker.prob/1`, `poker.event/1`, and a protocol `v` on the envelope.
+  `poker.equity/1`, `poker.event/1`, and a protocol `v` on the envelope.
 - Additive fields are backward compatible within a major version; breaking
   changes bump the version. The `hello` handshake negotiates the protocol and
   rejects mismatches before any command is interpreted.
@@ -608,7 +614,7 @@ multi-host play.
   over a temporary socket; drive whole hands (`wait --turn` → `choose` → …).
 - **Determinism:** seeded sessions produce identical deals, events, and history
   files; `replay` reproduces a stored hand exactly.
-- **Golden files:** the JSON schema of `snapshot`, `status`, `prob`, `event`,
+- **Golden files:** the JSON schema of `snapshot`, `status`, `equity`, `event`,
   and `history` is pinned.
 - **Contract:** every error class yields its specified exit code and `error.code`
   in both text and JSON modes; stdout stays clean on failure.
