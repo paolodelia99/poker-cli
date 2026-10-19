@@ -68,6 +68,7 @@ structured error plus fresh `legal_actions` / `turn` when an action is rejected.
 | 12 | `stale` | state advanced under the caller |
 | 13 | `table_finished` | table ended |
 | 14 | `wait_timeout` | bounded `wait` expired without matching |
+| 15 | `too_many_scenarios` | `--exact` needs more than 1,100,000 scenarios; use Monte-Carlo |
 
 `illegal_action`, `not_your_turn`, and `stale` include fresh
 `legal_actions` / `turn` in the error so a caller can correct itself.
