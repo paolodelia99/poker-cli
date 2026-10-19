@@ -1,6 +1,6 @@
 ---
 name: poker-cli
-description: Use when playing or observing Texas Hold'em through the poker-cli tool - starting or joining a table, waiting for your turn, reading snapshot legal_actions, choosing fold/check/call/raise/all-in, spectating, or handling poker-cli JSON output and exit codes. Triggers: poker-cli, hold'em, poker table, "wait --turn", legal_actions, "choose raise", snapshot, prob, feed.
+description: Use when playing or observing Texas Hold'em through the poker-cli tool - starting or joining a table, waiting for your turn, reading snapshot legal_actions, choosing fold/check/call/raise/all-in, spectating, or handling poker-cli JSON output and exit codes. Triggers: poker-cli, hold'em, poker table, "wait --turn", legal_actions, "choose raise", snapshot, equity, feed.
 metadata:
   status: draft
   note: Written from the CLI design spec (docs/superpowers/specs/2026-10-05-poker-cli-design.md). Validate against the implemented binary before relying on exact flags.
@@ -57,7 +57,7 @@ Never busy-loop `snapshot`. `wait --change` awaits any change to your seat;
 | Start a hand (host) | `poker-cli begin` |
 | Current state | `poker-cli snapshot` |
 | Public seats | `poker-cli status` |
-| Equity | `poker-cli prob --iterations 50000 --opponents 1` |
+| Equity | `poker-cli equity --iterations 50000 --opponents 1` |
 | Watch live | `poker-cli feed --since <seq>` |
 | Leave / pause | `poker-cli leave` / `poker-cli sit-out` |
 
