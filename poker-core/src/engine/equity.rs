@@ -676,6 +676,44 @@ mod tests {
             equity(
                 EquityInput {
                     hero: [p("As"), p("Ah")],
+                    board: vec![p("2c"), p("7d")],
+                    opponents: 1,
+                },
+                par(100)
+            ),
+            Err(EngineError::InvalidBoardSize(2))
+        ));
+        assert!(matches!(
+            equity(
+                EquityInput {
+                    hero: [p("As"), p("Ah")],
+                    board: vec![p("2c"), p("7d"), p("9h"), p("Qs"), p("Jd"), p("Tc")],
+                    opponents: 1,
+                },
+                par(100)
+            ),
+            Err(EngineError::InvalidBoardSize(6))
+        ));
+        assert_eq!(
+            equity(
+                EquityInput {
+                    hero: [p("As"), p("Ah")],
+                    board: vec![p("2c"), p("2c"), p("7d")],
+                    opponents: 1,
+                },
+                par(100)
+            )
+            .unwrap_err(),
+            EngineError::DuplicateCard(p("2c"))
+        );
+        assert!(matches!(
+            equity(ok(), par(0)),
+            Err(EngineError::InvalidIterations(0))
+        ));
+        assert!(matches!(
+            equity(
+                EquityInput {
+                    hero: [p("As"), p("Ah")],
                     board: vec![p("As")],
                     opponents: 1,
                 },
@@ -718,7 +756,50 @@ mod tests {
                 },
                 par(100)
             ),
-            Err(EngineError::NotEnoughCards { .. })
+            Err(EngineError::NotEnoughCards { need: 65, have: 50 })
         ));
+    }
+
+    #[test]
+    fn test_opponent_capacity_boundary() {
+        let params = EquityParams {
+            seed: 0,
+            mode: EquityMode::MonteCarlo { iterations: 2 },
+        };
+
+        let at_limit = equity(
+            EquityInput {
+                hero: [p("As"), p("Ah")],
+                board: vec![],
+                opponents: 22,
+            },
+            params,
+        )
+        .unwrap();
+        assert_eq!(at_limit.opponents, 22);
+        assert_eq!(at_limit.count, 2);
+
+        let over_limit = equity(
+            EquityInput {
+                hero: [p("As"), p("Ah")],
+                board: vec![],
+                opponents: 23,
+            },
+            params,
+        );
+        assert_eq!(
+            over_limit.unwrap_err(),
+            EngineError::NotEnoughCards { need: 51, have: 50 }
+        );
+    }
+
+    #[test]
+    fn test_scenario_count_multiway_and_guards() {
+        assert_eq!(scenario_count(5, 2), 893_970);
+        assert_eq!(scenario_count(5, 3), 733_055_400);
+        assert_eq!(scenario_count(4, 2), 41_122_620);
+        assert_eq!(scenario_count(6, 1), 0);
+        assert_eq!(scenario_count(0, 23), 0);
+        assert_eq!(combination_count(2, 3), 0);
     }
 }
