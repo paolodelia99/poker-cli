@@ -115,6 +115,7 @@ fn scenario_count(board_len: usize, opponents: usize) -> u64 {
         let available = unknown - 2 * opponent;
         scenarios = scenarios.saturating_mul(combination_count(available, 2));
     }
+
     scenarios.saturating_mul(combination_count(unknown - 2 * opponents, runout))
 }
 
@@ -157,6 +158,7 @@ fn rank_trial(
             evaluator.rank_seven(&make_seven([sampled[start], sampled[start + 1]]))
         })
         .collect();
+
     share(hero_rank, &opponent_ranks)
 }
 
