@@ -371,6 +371,9 @@ mod tests {
             },
         )
         .unwrap();
+        assert_eq!(e.mode, EquityMode::Exact);
+        assert_eq!(e.opponents, 1);
+        assert_eq!(e.seed, 0);
         assert_eq!((e.equity, e.se, e.count), (1.0, 0.0, 990));
     }
 
@@ -450,6 +453,19 @@ mod tests {
             },
         )
         .unwrap();
+        assert_eq!(exact.mode, EquityMode::Exact);
+        assert_eq!(exact.opponents, 1);
+        assert_eq!(exact.seed, 0);
+        assert_eq!(exact.count, 45_540);
+        assert_eq!(
+            mc.mode,
+            EquityMode::MonteCarlo {
+                iterations: 2_000_000
+            }
+        );
+        assert_eq!(mc.opponents, 1);
+        assert_eq!(mc.seed, 5);
+        assert_eq!(mc.count, 2_000_000);
         assert!((mc.equity - exact.equity).abs() <= 4.0 * mc.se);
     }
 
@@ -482,6 +498,20 @@ mod tests {
             },
         )
         .unwrap();
+
+        assert_eq!(exact.mode, EquityMode::Exact);
+        assert_eq!(exact.opponents, 1);
+        assert_eq!(exact.seed, 0);
+        assert_eq!(exact.count, 990);
+        assert_eq!(
+            mc.mode,
+            EquityMode::MonteCarlo {
+                iterations: 100_000
+            }
+        );
+        assert_eq!(mc.opponents, 1);
+        assert_eq!(mc.seed, 5);
+        assert_eq!(mc.count, 100_000);
 
         assert!(mc.se > 0.0);
         assert!((mc.equity - exact.equity).abs() <= 4.0 * mc.se);
@@ -594,6 +624,12 @@ mod tests {
             },
         )
         .unwrap();
+        assert_eq!(e1.mode, EquityMode::MonteCarlo { iterations: 10_000 });
+        assert_eq!(e1.opponents, 1);
+        assert_eq!(e1.seed, 1);
+        assert_eq!(e2.mode, EquityMode::MonteCarlo { iterations: 10_000 });
+        assert_eq!(e2.opponents, 2);
+        assert_eq!(e2.seed, 1);
         assert_eq!((e2.equity, e2.tie), (1.0 / 3.0, 1.0));
     }
 
@@ -646,6 +682,53 @@ mod tests {
             mode: EquityMode::MonteCarlo { iterations: 10_000 },
         };
         assert_eq!(equity(input.clone(), params), equity(input, params));
+    }
+
+    #[test]
+    fn test_seeded_mc_golden() {
+        // Golden anchor: the current implementation produces 856 wins and
+        // 144 losses (no ties) in 1,000 seeded trials. An intentional change
+        // to the RNG, sampler, or evaluator rank mapping is a schema-breaking
+        // change (spec §5); update this golden only then.
+        let iterations = 1_000;
+        let wins = 856;
+        let losses = iterations - wins;
+
+        let e = equity(
+            EquityInput {
+                hero: [p("As"), p("Ah")],
+                board: vec![p("2c"), p("7d"), p("9h")],
+                opponents: 1,
+            },
+            EquityParams {
+                seed: 0x0123_4567_89ab_cdef,
+                mode: EquityMode::MonteCarlo { iterations },
+            },
+        )
+        .unwrap();
+
+        assert_eq!(e.mode, EquityMode::MonteCarlo { iterations });
+        assert_eq!(e.opponents, 1);
+        assert_eq!(e.seed, 0x0123_4567_89ab_cdef);
+        assert_eq!(e.count, iterations);
+
+        let expected_equity = wins as f64 / iterations as f64;
+        let expected_lose = losses as f64 / iterations as f64;
+        assert_eq!(e.equity, expected_equity);
+        assert_eq!(e.win, expected_equity);
+        assert_eq!(e.tie, 0.0);
+        assert_eq!(e.lose, expected_lose);
+
+        // Every trial is binary (win or loss), so the standard error follows
+        // from the outcome split: se = sqrt(p(1-p) / (N-1)). This derives the
+        // expected value instead of pinning an opaque float.
+        let expected_se = (e.win * e.lose / (iterations as f64 - 1.0)).sqrt();
+        assert!(
+            (e.se - expected_se).abs() <= 1e-12,
+            "se: {}, expected_se: {}",
+            e.se,
+            expected_se
+        );
     }
 
     #[test]
