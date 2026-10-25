@@ -604,6 +604,90 @@ mod tests {
     }
 
     #[test]
+    fn test_exact_multiway_tie_heavy_river_matches_mc() {
+        let iterations = 200_000;
+        let input = EquityInput {
+            hero: [p("As"), p("Kh")],
+            board: vec![p("9c"), p("8d"), p("7s"), p("6h"), p("5c")],
+            opponents: 2,
+        };
+
+        let exact = equity(
+            input.clone(),
+            EquityParams {
+                seed: 0,
+                mode: EquityMode::Exact,
+            },
+        )
+        .unwrap();
+
+        // Total: C(45,2) * C(43,2) = 893,970. Both opponents avoid a ten in
+        // C(41,2) * C(39,2) = 607,620 deals; the rest contain at least one ten.
+        assert_eq!((exact.count, exact.se), (893_970, 0.0));
+        assert_eq!(exact.mode, EquityMode::Exact);
+        assert_eq!(exact.opponents, 2);
+        assert_eq!(exact.seed, 0);
+        assert_eq!(exact.win, 0.0);
+        assert_eq!(exact.tie, 607_620.0 / 893_970.0);
+        assert_eq!(exact.lose, 286_350.0 / 893_970.0);
+        assert!(
+            (exact.equity - 202_540.0 / 893_970.0).abs() <= 1e-9,
+            "exact.equity: {}",
+            exact.equity
+        );
+
+        let mc = equity(
+            input,
+            EquityParams {
+                seed: 5,
+                mode: EquityMode::MonteCarlo { iterations },
+            },
+        )
+        .unwrap();
+
+        assert_eq!(mc.mode, EquityMode::MonteCarlo { iterations });
+        assert_eq!(mc.opponents, 2);
+        assert_eq!(mc.seed, 5);
+        assert_eq!(mc.count, iterations);
+        assert_eq!(mc.win, 0.0);
+
+        // Per-trial shares are 1/3 with probability `exact.tie` and 0
+        // otherwise, so Var(S) = p(1-p)/9.
+        let expected_se = (exact.tie * (1.0 - exact.tie) / 9.0 / iterations as f64).sqrt();
+        assert!(
+            (mc.se - expected_se).abs() <= 0.02 * expected_se,
+            "mc.se: {}, expected_se: {}",
+            mc.se,
+            expected_se
+        );
+        assert!(
+            (mc.equity - exact.equity).abs() <= 4.0 * expected_se,
+            "mc.equity: {}, exact.equity: {}, expected_se: {}",
+            mc.equity,
+            exact.equity,
+            expected_se
+        );
+
+        let tie_se = (exact.tie * (1.0 - exact.tie) / iterations as f64).sqrt();
+        assert!(
+            (mc.tie - exact.tie).abs() <= 4.0 * tie_se,
+            "mc.tie: {}, exact.tie: {}, tie_se: {}",
+            mc.tie,
+            exact.tie,
+            tie_se
+        );
+        let lose_se = (exact.lose * (1.0 - exact.lose) / iterations as f64).sqrt();
+        assert!(
+            (mc.lose - exact.lose).abs() <= 4.0 * lose_se,
+            "mc.lose: {}, exact.lose: {}, lose_se: {}",
+            mc.lose,
+            exact.lose,
+            lose_se
+        );
+        assert!((mc.win + mc.tie + mc.lose - 1.0).abs() <= 1e-9);
+    }
+
+    #[test]
     fn test_share_function() {
         let h = |r| HandRank(r);
         assert_eq!(share(h(10), &[h(5), h(5)]), (1.0, Outcome::Win));
