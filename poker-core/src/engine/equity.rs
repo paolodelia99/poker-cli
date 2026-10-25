@@ -378,20 +378,7 @@ mod tests {
     }
 
     #[test]
-    fn test_exact_threshold() {
-        let flop = || EquityInput {
-            hero: [p("As"), p("Ah")],
-            board: vec![p("2c"), p("7d"), p("9h")],
-            opponents: 1,
-        };
-        assert!(equity(
-            flop(),
-            EquityParams {
-                seed: 0,
-                mode: EquityMode::Exact
-            }
-        )
-        .is_ok());
+    fn test_exact_threshold_rejects_oversized_enumeration() {
         let two = EquityInput {
             hero: [p("As"), p("Ah")],
             board: vec![p("2c"), p("7d"), p("9h")],
@@ -409,6 +396,7 @@ mod tests {
                 scenarios: 966_381_570
             })
         ));
+
         let pre = EquityInput {
             hero: [p("As"), p("Ah")],
             board: vec![],
@@ -426,6 +414,58 @@ mod tests {
                 scenarios: 2_097_572_400
             })
         ));
+    }
+
+    #[test]
+    fn test_exact_flop_matches_mc() {
+        let input = EquityInput {
+            hero: [p("As"), p("Ah")],
+            board: vec![p("2c"), p("7d"), p("9h")],
+            opponents: 1,
+        };
+
+        let exact = equity(
+            input.clone(),
+            EquityParams {
+                seed: 0,
+                mode: EquityMode::Exact,
+            },
+        )
+        .unwrap();
+        assert_eq!((exact.count, exact.se), (1_070_190, 0.0));
+        assert_eq!(exact.mode, EquityMode::Exact);
+        assert_eq!(exact.opponents, 1);
+        assert_eq!(exact.seed, 0);
+        assert!((exact.win + exact.tie + exact.lose - 1.0).abs() <= 1e-9);
+
+        let mc = equity(
+            input,
+            EquityParams {
+                seed: 5,
+                mode: EquityMode::MonteCarlo {
+                    iterations: 300_000,
+                },
+            },
+        )
+        .unwrap();
+        assert!(mc.se > 0.0);
+        assert!(
+            (mc.equity - exact.equity).abs() <= 4.0 * mc.se,
+            "mc.equity: {}, exact.equity: {}, mc.se: {}",
+            mc.equity,
+            exact.equity,
+            mc.se
+        );
+        assert!((mc.win + mc.tie + mc.lose - 1.0).abs() <= 1e-9);
+        assert_eq!(
+            mc.mode,
+            EquityMode::MonteCarlo {
+                iterations: 300_000
+            }
+        );
+        assert_eq!(mc.opponents, 1);
+        assert_eq!(mc.seed, 5);
+        assert_eq!(mc.count, 300_000);
     }
 
     #[test]
