@@ -5,6 +5,7 @@
 //! the server projects engine state into the shared wire model below.
 
 pub mod config;
+pub mod engine;
 pub mod errors;
 pub mod protocol;
 
