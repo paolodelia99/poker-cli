@@ -123,10 +123,11 @@ Failure response:
             "turn":{"seat":1,"deadline_ms":11840},"legal_actions":{...}}}
 ```
 
-Streaming commands (`feed`, `wait`) send the normal response line and then emit
-**event lines** until the client disconnects or a terminal condition is reached.
-The server renders each stream **per subscriber**, redacting hole cards the
-subscriber may not see (§6.4).
+Streaming commands (`feed`, `wait`) first send the normal `poker.ack/1`
+response line. `feed` then emits **event lines** until the client disconnects
+or a terminal condition is reached; `wait` emits exactly one redacted
+`poker.snapshot/1` line and closes. The server renders each stream **per
+subscriber**, redacting hole cards the subscriber may not see (§6.4).
 
 ---
 
@@ -138,10 +139,12 @@ subscriber may not see (§6.4).
 |---|---|
 | **player** | Read/write: `choose`, receive own hole cards, `sit-out`/`sit-in`, `leave`. |
 | **spectator** | Read-only: `snapshot` (no hole cards), `status`, `wait`, `feed`. |
-| **admin / host** | Everything a player can do plus `step`, `replay`, `end`, `--reveal`, and table control. |
+| **admin / host** | Table control plus `step`, `replay`, `end`, `--reveal`. An admin token carries **no seat**, so it cannot `choose`, `leave`, `sit-out`, or `sit-in`; hold a player token for those. |
 
 Tokens are opaque strings issued by the server at `start` (admin token) and
 `join` (player/spectator token). A token's role is fixed at issue time.
+(v1 clarification: admin is not "player plus everything"; seated actions
+require a player token bound to a seat, and an admin attempt is `auth`.)
 
 ### 3.2 The `.poker` file
 
@@ -177,6 +180,9 @@ to select a table.
 
 - `join --seat N` claims seat `N` if free; otherwise the server assigns the
   **lowest free seat**.
+- `join` without `--as` names the seat `player-<seat>`; bot seats are named
+  `bot-<n>` and cannot be joined. (v1 clarification: `<n>` is the bot ordinal
+  at table creation, starting at 1.)
 - `join --watch` yields a **read-only spectator** token and no seat.
 - Re-`join` with an existing token **reattaches idempotently** to the same seat;
   it never consumes a new one.
@@ -197,6 +203,19 @@ to select a table.
 | `begin [--hands N \| --continuous]` | Host deals the next hand (`–hands`/`--continuous` per §5.2). |
 | `end` | Host closes the table. Stops play; results final; seats release. The server keeps running. |
 
+`start` is validated server-side; a violation is `usage`: `seats` 2..=10,
+`bots < seats`, `stack > 0`, `sb > 0`, `bb >= sb`, `button` in range, table id
+matching `^[A-Za-z0-9_-]{1,64}$`, `variant` = `nlhe`, and no duplicate id.
+`--button` is the first hand's button; it rotates clockwise to the next active
+seat on each subsequent hand. (v1 clarification: the CLI only shape-checks;
+the server remains authoritative.)
+
+`serve` also accepts hidden test-only `--engine core|fixture` and
+`--history-dir PATH` flags. `core` is the default and fails with a clear
+diagnostic until `poker-core`'s hand state machine lands; `fixture` is a
+deterministic development double. Both flags disappear with the `CoreEngine`
+adapter. (v1 clarification: these are not stable CLI surface.)
+
 ### 4.2 Seating
 
 | Command | Semantics |
@@ -205,6 +224,13 @@ to select a table.
 | `leave` | Vacate your seat. If a hand is in progress, your hand folds immediately and you sit out thereafter. |
 | `sit-out` | Mark your seat present but **not dealt in** (chips kept, blinds skipped) until `sit-in`. |
 | `sit-in` | Undo `sit-out`; you are dealt into the next hand. |
+
+`choose`, `leave`, `sit-out`, and `sit-in` act on the **player token's seat**
+and require such a token; an admin or spectator token is `auth`, never a
+guessed seat. `join` issues a player token and is available without one; a
+re-`join` may present an existing player token to reattach to the same seat.
+`join` without `--as` uses `player-<seat>`. (v1 clarification: the admin role
+is table control, not a virtual player.)
 
 ### 4.3 Playing and observing
 
@@ -240,7 +266,13 @@ so a correctable failure can be fixed in one round trip.
 |---|---|
 | `flow <auto\|manual>` | Admin: set the table's flow. `auto` advances streets automatically; `manual` enables `step` (§5.4). |
 | `step` | Admin: advance the engine exactly one transition (e.g. flop → turn). Only meaningful in manual flow (§5.4). |
-| `replay --hand N [--table ID] [--step \| --auto]` | Admin: re-drive a stored hand, optionally transition by transition. |
+| `replay --hand N [--table ID] [--step \| --auto]` | Admin: re-emit a stored hand's public event projection, event by event or all at once. |
+
+`replay` walks stored events; it does not re-drive `poker-core` because the
+hand seed is never persisted. `--step` cursors are keyed per admin token,
+table, and hand and persist across connections, so successive invocations
+continue the walk. (v1 clarification: replay is a projection walk, not a
+recomputation.)
 
 ### 4.5 History and meta
 
@@ -249,6 +281,12 @@ so a correctable failure can be fixed in one round trip.
 | `history [--table ID] [--hand N]` | List or fetch persisted hands (§9). |
 | `help [COMMAND]` | Usage. |
 | `version` | Client and (if reachable) server/protocol version. |
+
+`history` listing is `{"schema":"poker.history/1","table":"hero","hands":[{"hand":7,"path":".poker/history/hero/hand-7.json"}]}`;
+`history --hand N` returns the persisted `poker.hand/1` document. The server's
+`version` payload is `{"server":"poker/0.1","protocol":1}`. (v1 clarification:
+`start` and `join` acks are `poker.ack/1` plus `{table, token, role, seat}`;
+`seat` is `null` for admin and spectator tokens.)
 
 ---
 
@@ -260,8 +298,11 @@ so a correctable failure can be fixed in one round trip.
 waiting → ready → in-hand → between-hands → (in-hand …) → finished
 ```
 
-- `waiting`: created; seats not yet filled (or `begin` not yet called).
-- `ready`: all non-sitting-out seats are occupied; awaiting the host's `begin`.
+- `waiting`: created; fewer than **two** occupied active seats.
+- `ready`: at least two occupied active seats; awaiting the host's `begin`.
+  Empty seats are **open**, not sitting out; they do not block readiness and
+  are not dealt in. (v1 clarification: a 6-seat table with 2 players is
+  ready.)
 - `in-hand`: a hand is being played.
 - `between-hands`: hand complete; awaiting the next `begin`.
 - `finished`: `end` was called, or only one seat holds chips.
@@ -537,10 +578,17 @@ from one shared type, so the two audiences cannot drift.
 Any correctable failure carries the context to correct it: `illegal_action`,
 `not_your_turn`, and `stale` include fresh `legal_actions`/`turn`.
 
+Handshake and framing map onto the same codes: a non-`hello` first line is
+`usage`; a bad token in `hello` is `auth`; a malformed JSONL line is `usage`
+and the connection continues; a line over **64 KiB** is `usage` and the
+connection closes. (v1 clarification: handshake shape errors are not
+`protocol_version`; only a version mismatch is.)
+
 ### 8.4 Schema and protocol versioning
 
 - Every payload names its version: `poker.snapshot/1`, `poker.status/1`,
-  `poker.equity/1`, `poker.event/1`, and a protocol `v` on the envelope.
+  `poker.equity/1`, `poker.event/1`, `poker.hand/1`, `poker.ack/1`,
+  `poker.tables/1`, `poker.history/1`, and a protocol `v` on the envelope.
 - Additive fields are backward compatible within a major version; breaking
   changes bump the version. The `hello` handshake negotiates the protocol and
   rejects mismatches before any command is interpreted.
@@ -552,10 +600,14 @@ Any correctable failure carries the context to correct it: `illegal_action`,
 - Completed hands are written as one JSON document each to
   `.poker/history/<table>/hand-<n>.json`, using the **same event schema** `feed`
   emits.
-- `history` lists or fetches stored hands; `replay` (admin) re-drives a stored
-  hand, pairing with `step` for transition-by-transition walkthroughs.
-- `--seed` makes a session's deals reproducible, so a stored hand can be
-  re-driven deterministically.
+- `history` lists or fetches stored hands; `replay` (admin) re-emits a stored
+  hand's **public event projection**, pairing with `step` to walk the stored
+  events one at a time. It never re-drives `poker-core`, because the seed is
+  never persisted. (v1 clarification: replay is a projection walk, not a
+  recomputation.)
+- `--seed` makes a session's deals reproducible. Seeded runs produce identical
+  deals, events, and history, but a stored hand is replayed by re-emitting its
+  stored events; the seed itself is never persisted.
 - **In-flight tables are not crash-recovered in v1.** The canonical event stream
   is designed as a single sink so that full event-sourced recovery is a later
   upgrade (turn the sink into a source) without changing the wire contract.
