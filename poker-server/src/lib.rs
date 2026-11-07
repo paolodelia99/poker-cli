@@ -7,7 +7,10 @@
 pub mod config;
 pub mod engine;
 pub mod errors;
+pub mod events;
+pub mod persistence;
 pub mod protocol;
+pub mod views;
 
 pub use config::{default_socket_path, Config};
 pub use errors::{ErrorBody, ErrorCode};
